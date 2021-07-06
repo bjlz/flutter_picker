@@ -1,8 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/material.dart' as Dialog;
-import 'dart:async';
+
 import 'PickerLocalizations.dart';
 
 const bool __printDebug = false;
@@ -22,6 +24,9 @@ typedef PickerConfirmBeforeCallback = Future<bool> Function(
 /// Picker value format callback.
 typedef PickerValueFormat<T> = String Function(T value);
 
+/// 滑动结束回调
+typedef PickerScrollEndCallBack = void Function(List<int> selected);
+
 /// Picker
 class Picker {
   static const double DefaultTextSize = 20.0;
@@ -39,6 +44,7 @@ class Picker {
   final PickerSelectedCallback? onSelect;
   final PickerConfirmCallback? onConfirm;
   final PickerConfirmBeforeCallback? onConfirmBefore;
+  final PickerScrollEndCallBack? onScrollEnd;
 
   /// When the previous level selection changes, scroll the child to the first item.
   final changeToFirst;
@@ -99,49 +105,52 @@ class Picker {
   Widget? _widget;
   PickerWidgetState? _state;
 
-  Picker(
-      {required this.adapter,
-      this.delimiter,
-      List<int>? selecteds,
-      this.height = 150.0,
-      this.itemExtent = 28.0,
-      this.columnPadding,
-      this.textStyle,
-      this.cancelTextStyle,
-      this.confirmTextStyle,
-      this.selectedTextStyle,
-      this.selectedIconTheme,
-      this.textAlign = TextAlign.start,
-      this.textScaleFactor,
-      this.title,
-      this.cancel,
-      this.confirm,
-      this.cancelText,
-      this.confirmText,
-      this.backgroundColor = Colors.white,
-      this.containerColor,
-      this.headerColor,
-      this.builderHeader,
-      this.changeToFirst = false,
-      this.hideHeader = false,
-      this.looping = false,
-      this.reversedOrder = false,
-      this.headerDecoration,
-      this.columnFlex,
-      this.footer,
-      this.smooth = 0,
-      this.magnification = 1.0,
-      this.diameterRatio = 1.1,
-      this.squeeze = 1.45,
-      this.selectionOverlay = const CupertinoPickerDefaultSelectionOverlay(),
-      this.onCancel,
-      this.onSelect,
-      this.onConfirmBefore,
-      this.onConfirm}) {
+  Picker({
+    required this.adapter,
+    this.delimiter,
+    List<int>? selecteds,
+    this.height = 150.0,
+    this.itemExtent = 28.0,
+    this.columnPadding,
+    this.textStyle,
+    this.cancelTextStyle,
+    this.confirmTextStyle,
+    this.selectedTextStyle,
+    this.selectedIconTheme,
+    this.textAlign = TextAlign.start,
+    this.textScaleFactor,
+    this.title,
+    this.cancel,
+    this.confirm,
+    this.cancelText,
+    this.confirmText,
+    this.backgroundColor = Colors.white,
+    this.containerColor,
+    this.headerColor,
+    this.builderHeader,
+    this.changeToFirst = false,
+    this.hideHeader = false,
+    this.looping = false,
+    this.reversedOrder = false,
+    this.headerDecoration,
+    this.columnFlex,
+    this.footer,
+    this.smooth = 0,
+    this.magnification = 1.0,
+    this.diameterRatio = 1.1,
+    this.squeeze = 1.45,
+    this.selectionOverlay = const CupertinoPickerDefaultSelectionOverlay(),
+    this.onCancel,
+    this.onSelect,
+    this.onConfirmBefore,
+    this.onConfirm,
+    this.onScrollEnd,
+  }) {
     this.selecteds = selecteds == null ? <int>[] : selecteds;
   }
 
   Widget? get widget => _widget;
+
   PickerWidgetState? get state => _state;
   int _maxLevel = 1;
 
@@ -215,7 +224,8 @@ class Picker {
               actions.add(TextButton(
                   style: _getButtonStyle(ButtonTheme.of(context)),
                   onPressed: () async {
-                    if (onConfirmBefore != null && !(await onConfirmBefore!(this, selecteds))) {
+                    if (onConfirmBefore != null &&
+                        !(await onConfirmBefore!(this, selecteds))) {
                       return; // Cancel;
                     }
                     Navigator.pop<List<int>>(context, selecteds);
@@ -283,6 +293,7 @@ class Picker {
 class PickerDelimiter {
   final Widget? child;
   final int column;
+
   PickerDelimiter({required this.child, this.column = 1});
 }
 
@@ -302,8 +313,10 @@ class PickerItem<T> {
 
 class PickerWidget<T> extends InheritedWidget {
   final Picker data;
+
   const PickerWidget({Key? key, required this.data, required Widget child})
       : super(key: key, child: child);
+
   @override
   bool updateShouldNotify(covariant PickerWidget oldWidget) =>
       oldWidget.data != data;
@@ -318,6 +331,7 @@ class _PickerWidget<T> extends StatefulWidget {
   final Picker picker;
   final ThemeData? themeData;
   final bool isModal;
+
   _PickerWidget(
       {Key? key, required this.picker, this.themeData, required this.isModal})
       : super(key: key);
@@ -330,6 +344,7 @@ class _PickerWidget<T> extends StatefulWidget {
 class PickerWidgetState<T> extends State<_PickerWidget> {
   final Picker picker;
   final ThemeData? themeData;
+
   PickerWidgetState({required this.picker, this.themeData});
 
   ThemeData? theme;
@@ -535,7 +550,8 @@ class PickerWidgetState<T> extends State<_PickerWidget> {
                           !scrollController[i].position.hasContentDimensions;
 
                       final _length = adapter.length;
-                      var _view = CupertinoPicker.builder(
+
+                      final _cupertinoPicker = CupertinoPicker.builder(
                         key: _lastIsEmpty ? ValueKey(_length) : null,
                         backgroundColor: picker.backgroundColor,
                         scrollController: scrollController[i],
@@ -583,6 +599,17 @@ class PickerWidgetState<T> extends State<_PickerWidget> {
                           return adapter.buildItem(context, index % _length);
                         },
                         childCount: picker.looping ? null : _length,
+                      );
+
+                      final _view = NotificationListener(
+                        child: _cupertinoPicker,
+                        onNotification: (notification) {
+                          if (notification is ScrollEndNotification) {
+                            // 滑动结束
+                            picker.onScrollEnd?.call(picker.selecteds);
+                          }
+                          return false;
+                        },
                       );
 
                       if (_lastIsEmpty ||
@@ -659,9 +686,13 @@ abstract class PickerAdapter<T> {
   Picker? picker;
 
   int getLength();
+
   int getMaxLevel();
+
   void setColumn(int index);
+
   void initSelects();
+
   Widget buildItem(BuildContext context, int index);
 
   /// 是否需要更新前面的列
@@ -737,6 +768,7 @@ abstract class PickerAdapter<T> {
   }
 
   void doShow() {}
+
   void doSelect(int column, int index) {}
 
   int getColumnFlex(int column) {
@@ -1132,7 +1164,12 @@ class DateTimePickerAdapter extends PickerAdapter<DateTime> {
   final int? minuteInterval;
 
   /// Year, month, day suffix
-  final String? yearSuffix, monthSuffix, daySuffix, hourSuffix, minuteSuffix, secondSuffix;
+  final String? yearSuffix,
+      monthSuffix,
+      daySuffix,
+      hourSuffix,
+      minuteSuffix,
+      secondSuffix;
 
   /// use two-digit year, 2019, displayed as 19
   final bool twoDigitYear;
@@ -1215,7 +1252,7 @@ class DateTimePickerAdapter extends PickerAdapter<DateTime> {
     if (!_needUpdatePrev) {
       // check am/pm before hour-ap
       var ap = _columnType.indexWhere((element) => element == 6);
-      if (ap >  _columnType.indexWhere((element) => element == 7)) {
+      if (ap > _columnType.indexWhere((element) => element == 7)) {
         _apBeforeHourAp = true;
         _needUpdatePrev = true;
       }
@@ -1432,7 +1469,8 @@ class DateTimePickerAdapter extends PickerAdapter<DateTime> {
         if (minuteInterval == null || minuteInterval! < 2)
           _text = "${intToStr(index)}${_checkStr(minuteSuffix)}";
         else
-          _text = "${intToStr(index * minuteInterval!)}${_checkStr(minuteSuffix)}";
+          _text =
+              "${intToStr(index * minuteInterval!)}${_checkStr(minuteSuffix)}";
         break;
       case 6:
         List? _ampm = strAMPM ?? PickerLocalizations.of(context).ampm;
